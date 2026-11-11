@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Radar IoT Cloud</title>
-    <!-- Librería MQTT oficial para conectar el navegador directo a la nube -->
-    <script src="https://unpkg.com"></script>
+    <script src="https://cloudflare.com"></script>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
@@ -19,7 +18,7 @@
             display: flex; justify-content: center; align-items: center;
             color: #00ff00; font-size: 18px; font-weight: bold;
         }
-        .status { position: absolute; top: 10px; right: 15px; color: #ffaa00; font-size: 12px; }
+        .status { position: absolute; top: 10px; right: 15px; color: #ffaa00; font-size: 12px; z-index: 10; }
     </style>
 </head>
 <body>
@@ -31,30 +30,26 @@
     </div>
 
     <script>
-        // ==========================================
-        // EDITAR ESTE TÓPICO (Igual al del ESP32)
-        // ==========================================
         const TOPICO = "defensa_proyecto_carlos/datos";
-
-        // Conexión directa a la nube de EMQX mediante WebSockets Seguros (WSS)
-        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
         const statusEl = document.getElementById('statusText');
-
-        client.on('connect', () => {
-            statusEl.innerText = "● EN LÍNEA (CLOUD)";
-            statusEl.style.color = "#00ff00";
-            client.subscribe(TOPICO);
-        });
-
-        client.on('error', () => {
-            statusEl.innerText = "● ERROR DE RED";
-            statusEl.style.color = "#ff3333";
-        });
-
-        // Configuración del Canvas y Audio Sonar
         const canvas = document.getElementById("radarCanvas");
         const ctx = canvas.getContext("2d");
         let cx, cy, r, audioCtx = null;
+
+        function drawBase() {
+            ctx.fillStyle = "rgba(4, 13, 4, 0.15)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "rgba(0, 255, 0, 0.25)";
+            ctx.lineWidth = 1;
+            for (let i = 1; i <= 4; i++) {
+                ctx.beginPath(); ctx.arc(cx, cy, (r / 4) * i, Math.PI, 0); ctx.stroke();
+            }
+            const angles = [Math.PI / 4, Math.PI / 2, (3 * Math.PI) / 4];
+            angles.forEach(a => {
+                ctx.beginPath(); ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + r * Math.cos(-a), cy + r * Math.sin(-a)); ctx.stroke();
+            });
+        }
 
         function resize() {
             canvas.width = canvas.clientWidth;
@@ -62,6 +57,7 @@
             cx = canvas.width / 2;
             cy = canvas.height - 20;
             r = Math.min(cx, cy) * 0.95;
+            drawBase();
         }
         window.addEventListener('resize', resize);
         resize();
@@ -80,17 +76,24 @@
             osc.start(); osc.stop(audioCtx.currentTime + dur);
         }
 
-        function drawBase() {
-            ctx.fillStyle = "rgba(4, 13, 4, 0.15)";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.strokeStyle = "rgba(0, 255, 0, 0.2)";
-            ctx.lineWidth = 1;
-            for (let i = 1; i <= 4; i++) {
-                ctx.beginPath(); ctx.arc(cx, cy, (r / 4) * i, Math.PI, 0); ctx.stroke();
-            }
-        }
+        const clientId = 'radar_web_' + Math.random().toString(16).substr(2, 8);
+        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+            clientId: clientId,
+            clean: true,
+            connectTimeout: 5000
+        });
 
-        // Escuchar los mensajes que llegan desde el ESP32
+        client.on('connect', () => {
+            statusEl.innerText = "● EN LÍNEA (CLOUD)";
+            statusEl.style.color = "#00ff00";
+            client.subscribe(TOPICO);
+        });
+
+        client.on('error', () => {
+            statusEl.innerText = "● ERROR DE RED";
+            statusEl.style.color = "#ff3333";
+        });
+
         client.on('message', (topic, message) => {
             try {
                 const data = JSON.parse(message.toString());
@@ -98,25 +101,26 @@
                 const distance = parseFloat(data.distance) || 0;
 
                 document.getElementById('angVal').innerText = angle + "°";
-                document.getElementById('distVal').innerText = (distance < 50 ? distance : "---") + " cm";
+                document.getElementById('distVal').innerText = (distance < 50 && distance > 0 ? distance : "---") + " cm";
 
                 drawBase();
                 const rad = (angle * Math.PI) / 180;
 
-                // Aguja de barrido
                 ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 3;
                 ctx.beginPath(); ctx.moveTo(cx, cy);
                 ctx.lineTo(cx + r * Math.cos(-rad), cy + r * Math.sin(-rad)); ctx.stroke();
 
                 if (angle === 0 || angle === 180) playPing(800, 0.3);
 
-                // Filtrar ruido y dibujar punto rojo real (entre 3cm y 50cm)
                 if (distance > 3 && distance < 50) {
                     const targetR = (distance / 50) * r;
                     ctx.fillStyle = "#ff1111";
+                    ctx.shadowColor = "#ff0000";
+                    ctx.shadowBlur = 10;
                     ctx.beginPath();
                     ctx.arc(cx + targetR * Math.cos(-rad), cy + targetR * Math.sin(-rad), 7, 0, 2 * Math.PI);
                     ctx.fill();
+                    ctx.shadowBlur = 0;
                     playPing(1300, 0.15);
                 }
             } catch (e) {}
