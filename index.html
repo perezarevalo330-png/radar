@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Radar IoT Cloud</title>
-    <script src="https://cloudflare.com"></script>
+    <script src="https://unpkg.com"></script>
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
@@ -22,7 +22,7 @@
     </style>
 </head>
 <body>
-    <div id="statusText" class="status">Conectando a la nube...</div>
+    <div id="statusText" class="status">Conectando...</div>
     <canvas id="radarCanvas"></canvas>
     <div class="telemetry">
         ÁNGULO: <span id="angVal" style="margin: 0 15px 0 5px;">0°</span> | 
@@ -76,55 +76,60 @@
             osc.start(); osc.stop(audioCtx.currentTime + dur);
         }
 
-        const clientId = 'radar_web_' + Math.random().toString(16).substr(2, 8);
-        const client = mqtt.connect('wss://test.mosquitto.org:8081', {
-            clientId: clientId,
-            clean: true,
-            connectTimeout: 5000
-        });
-
-        client.on('connect', () => {
-            statusEl.innerText = "● EN LÍNEA (CLOUD)";
-            statusEl.style.color = "#00ff00";
-            client.subscribe(TOPICO);
-        });
-
-        client.on('error', () => {
-            statusEl.innerText = "● ERROR DE RED";
+        if (typeof mqtt === 'undefined') {
+            statusEl.innerText = "● BLOQUEO DE NAVEGADOR";
             statusEl.style.color = "#ff3333";
-        });
+        } else {
+            const clientId = 'radar_' + Math.random().toString(16).substr(2, 8);
+            const client = mqtt.connect('wss://://hivemq.com', {
+                clientId: clientId,
+                clean: true,
+                connectTimeout: 5000
+            });
 
-        client.on('message', (topic, message) => {
-            try {
-                const data = JSON.parse(message.toString());
-                const angle = parseInt(data.angle) || 0;
-                const distance = parseFloat(data.distance) || 0;
+            client.on('connect', () => {
+                statusEl.innerText = "● EN LÍNEA (CLOUD)";
+                statusEl.style.color = "#00ff00";
+                client.subscribe(TOPICO);
+            });
 
-                document.getElementById('angVal').innerText = angle + "°";
-                document.getElementById('distVal').innerText = (distance < 50 && distance > 0 ? distance : "---") + " cm";
+            client.on('error', (err) => {
+                statusEl.innerText = "● ERROR: " + err.message;
+                statusEl.style.color = "#ff3333";
+            });
 
-                drawBase();
-                const rad = (angle * Math.PI) / 180;
+            client.on('message', (topic, message) => {
+                try {
+                    const data = JSON.parse(message.toString());
+                    const angle = parseInt(data.angle) || 0;
+                    const distance = parseFloat(data.distance) || 0;
 
-                ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 3;
-                ctx.beginPath(); ctx.moveTo(cx, cy);
-                ctx.lineTo(cx + r * Math.cos(-rad), cy + r * Math.sin(-rad)); ctx.stroke();
+                    document.getElementById('angVal').innerText = angle + "°";
+                    document.getElementById('distVal').innerText = (distance < 50 && distance > 0 ? distance : "---") + " cm";
 
-                if (angle === 0 || angle === 180) playPing(800, 0.3);
+                    drawBase();
+                    const rad = (angle * Math.PI) / 180;
 
-                if (distance > 3 && distance < 50) {
-                    const targetR = (distance / 50) * r;
-                    ctx.fillStyle = "#ff1111";
-                    ctx.shadowColor = "#ff0000";
-                    ctx.shadowBlur = 10;
-                    ctx.beginPath();
-                    ctx.arc(cx + targetR * Math.cos(-rad), cy + targetR * Math.sin(-rad), 7, 0, 2 * Math.PI);
-                    ctx.fill();
-                    ctx.shadowBlur = 0;
-                    playPing(1300, 0.15);
-                }
-            } catch (e) {}
-        });
+                    ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.moveTo(cx, cy);
+                    ctx.lineTo(cx + r * Math.cos(-rad), cy + r * Math.sin(-rad)); ctx.stroke();
+
+                    if (angle === 0 || angle === 180) playPing(800, 0.3);
+
+                    if (distance > 3 && distance < 50) {
+                        const targetR = (distance / 50) * r;
+                        ctx.fillStyle = "#ff1111";
+                        ctx.shadowColor = "#ff0000";
+                        ctx.shadowBlur = 10;
+                        ctx.beginPath();
+                        ctx.arc(cx + targetR * Math.cos(-rad), cy + targetR * Math.sin(-rad), 7, 0, 2 * Math.PI);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                        playPing(1300, 0.15);
+                    }
+                } catch (e) {}
+            });
+        }
     </script>
 </body>
 </html>
