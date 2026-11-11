@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radar IoT Cloud</title>
+    <!-- Librería MQTT oficial para conectar el navegador directo a la nube -->
+    <script src="https://unpkg.com"></script>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: #020702; overflow: hidden; display: flex;
+            flex-direction: column; justify-content: space-between;
+            font-family: 'Courier New', monospace;
+        }
+        #radarCanvas { width: 100%; height: calc(100vh - 60px); background: #040d04; display: block; }
+        .telemetry {
+            height: 60px; background: #000; border-top: 2px solid #00ff0033;
+            display: flex; justify-content: center; align-items: center;
+            color: #00ff00; font-size: 18px; font-weight: bold;
+        }
+        .status { position: absolute; top: 10px; right: 15px; color: #ffaa00; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="statusText" class="status">Conectando a la nube...</div>
+    <canvas id="radarCanvas"></canvas>
+    <div class="telemetry">
+        ÁNGULO: <span id="angVal" style="margin: 0 15px 0 5px;">0°</span> | 
+        DISTANCIA: <span id="distVal" style="margin-left: 5px;">0 cm</span>
+    </div>
+
+    <script>
+        // ==========================================
+        // EDITAR ESTE TÓPICO (Igual al del ESP32)
+        // ==========================================
+        const TOPICO = "defensa_proyecto_carlos/datos";
+
+        // Conexión directa a la nube de EMQX mediante WebSockets Seguros (WSS)
+        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
+        const statusEl = document.getElementById('statusText');
+
+        client.on('connect', () => {
+            statusEl.innerText = "● EN LÍNEA (CLOUD)";
+            statusEl.style.color = "#00ff00";
+            client.subscribe(TOPICO);
+        });
+
+        client.on('error', () => {
+            statusEl.innerText = "● ERROR DE RED";
+            statusEl.style.color = "#ff3333";
+        });
+
+        // Configuración del Canvas y Audio Sonar
+        const canvas = document.getElementById("radarCanvas");
+        const ctx = canvas.getContext("2d");
+        let cx, cy, r, audioCtx = null;
+
+        function resize() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            cx = canvas.width / 2;
+            cy = canvas.height - 20;
+            r = Math.min(cx, cy) * 0.95;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function playPing(freq, dur) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.6, audioCtx.currentTime + dur);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+            osc.start(); osc.stop(audioCtx.currentTime + dur);
+        }
+
+        function drawBase() {
+            ctx.fillStyle = "rgba(4, 13, 4, 0.15)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = "rgba(0, 255, 0, 0.2)";
+            ctx.lineWidth = 1;
+            for (let i = 1; i <= 4; i++) {
+                ctx.beginPath(); ctx.arc(cx, cy, (r / 4) * i, Math.PI, 0); ctx.stroke();
+            }
+        }
+
+        // Escuchar los mensajes que llegan desde el ESP32
+        client.on('message', (topic, message) => {
+            try {
+                const data = JSON.parse(message.toString());
+                const angle = parseInt(data.angle) || 0;
+                const distance = parseFloat(data.distance) || 0;
+
+                document.getElementById('angVal').innerText = angle + "°";
+                document.getElementById('distVal').innerText = (distance < 50 ? distance : "---") + " cm";
+
+                drawBase();
+                const rad = (angle * Math.PI) / 180;
+
+                // Aguja de barrido
+                ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + r * Math.cos(-rad), cy + r * Math.sin(-rad)); ctx.stroke();
+
+                if (angle === 0 || angle === 180) playPing(800, 0.3);
+
+                // Filtrar ruido y dibujar punto rojo real (entre 3cm y 50cm)
+                if (distance > 3 && distance < 50) {
+                    const targetR = (distance / 50) * r;
+                    ctx.fillStyle = "#ff1111";
+                    ctx.beginPath();
+                    ctx.arc(cx + targetR * Math.cos(-rad), cy + targetR * Math.sin(-rad), 7, 0, 2 * Math.PI);
+                    ctx.fill();
+                    playPing(1300, 0.15);
+                }
+            } catch (e) {}
+        });
+    </script>
+</body>
+</html>
