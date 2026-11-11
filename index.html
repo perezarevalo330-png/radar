@@ -77,7 +77,7 @@
         }
 
         const clientId = 'radar_web_' + Math.random().toString(16).substr(2, 8);
-        const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+        const client = mqtt.connect('wss://test.mosquitto.org:8081', {
             clientId: clientId,
             clean: true,
             connectTimeout: 5000
